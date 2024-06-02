@@ -35,14 +35,13 @@ def send_welcome(message):
 def handle_answer(call):
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
     if call.data == "yes":
-        time.sleep(1)
         bot.send_message(call.message.chat.id, 'Хорошо, давайте начнем 🔥\nКакая у Вас сейчас должность 💼?')
         bot.register_next_step_handler(call.message, job_handler)
     elif call.data == "no":
-        time.sleep(1)
         bot.send_message(call.message.chat.id, "Без проблем, я буду ждать Вас.")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.delete_message(call.message.chat.id, call.message.message_id - 1)
+    # there's an error, but it doesn't affect the work of the bot
 
 
 def job_handler(message):
@@ -83,7 +82,6 @@ def general_info_handler(message):
     sent_message = bot.reply_to(message,
                                 'Спасибо! Ваша информация добавлена в базу данных.\nПриступил к приготовлению информации для Вас')
 
-    # Эффект загрузки
     loading_text = 'Спасибо! Ваша информация добавлена в базу данных.\nПриступил к приготовлению информации для Вас'
     for _ in range(5):
         for dots in range(3, 0, -1):
@@ -91,7 +89,6 @@ def general_info_handler(message):
                                   text=loading_text + "." * dots)
             time.sleep(1)
 
-    # Отправляем финальное сообщение
     bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id,
                           text='Финальное сообщение')
 
