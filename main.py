@@ -1,5 +1,6 @@
 import time
 import telebot
+import requests
 from telebot.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, \
     InlineKeyboardButton
 from settings import *
@@ -8,12 +9,25 @@ from logic import Person
 bot = telebot.TeleBot(bot_token)
 
 person_info = {}
+prompt = ''
+
+
+def deep_pavlov_answer(question):
+    try:
+        API_URL = "https://7038.deeppavlov.ai/model"
+        data = {"question_raw": [question]}
+        res = requests.post(API_URL, json=data).json()
+        res = res[0][0]
+    except:
+        res = "I don't know how to help"
+    return res
 
 
 @bot.message_handler(commands=['help'])
 def help(message):
     bot.reply_to(message,
-                 'Вы попали в отдел помощи навигации по боту! Доступные команды:\n/start - приветствие бота и инструкция')
+                 'Вы попали в отдел помощи навигации по боту! <b>Доступные команды:</b>\n/start - приветствие бота и инструкция',
+                 parse_mode='HTML')
 
 
 @bot.message_handler(commands=['start'])
@@ -28,12 +42,10 @@ def send_welcome(message):
     keyboard.add(b2)
     bot.send_message(
         message.chat.id, 'Готовы ли Вы сейчас ответить на некоторые вопросы?', reply_markup=keyboard)
-    bot.register_next_step_handler(message, handle_answer)
 
 
 @bot.callback_query_handler(func=lambda call: True)
-def handle_answer(call):
-    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+def handle_callback_query(call):
     if call.data == "yes":
         bot.send_message(call.message.chat.id, 'Хорошо, давайте начнем 🔥\nКакая у Вас сейчас должность 💼?')
         bot.register_next_step_handler(call.message, job_handler)
@@ -41,7 +53,6 @@ def handle_answer(call):
         bot.send_message(call.message.chat.id, "Без проблем, я буду ждать Вас.")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.delete_message(call.message.chat.id, call.message.message_id - 1)
-    # there's an error, but it doesn't affect the work of the bot
 
 
 def job_handler(message):
@@ -68,17 +79,19 @@ def interests_handler(message):
 
 def feelings_handler(message):
     bot.reply_to(message,
-                 'Отлично! Перейдем к последнему вопросу. Какие у Вас мысли и общие ощущения, которые возникают в процессе работы 🧘?',
+                 'Отлично! Перейдем к последнему вопросу. Какие у Вас мысли, которые возникают в процессе работы 🧘?',
                  reply_markup=ReplyKeyboardRemove())
     person_info[message.chat.id]["feelings"] = message.text
     bot.register_next_step_handler(message, general_info_handler)
 
 
 def general_info_handler(message):
+    global prompt
     person_info[message.chat.id]["general"] = message.text
     person_data = person_info.pop(message.chat.id)
     person.info(message.from_user.id, person_data["job"], person_data["interests"], person_data["feelings"],
                 person_data["general"])
+    prompt = f'Моя профессия: {person_data["job"]}. \nМои интересы: {person_data["interests"]}. \nМои ощущение от работы: {person_data["feelings"]}. \nМои мысли во времы работы: {person_data["general"]}. \nЯ хочу сменить род деятельности. Какие профессии или хобби можешь посоветовать?'
     sent_message = bot.reply_to(message,
                                 'Спасибо! Ваша информация добавлена в базу данных.\nПриступил к приготовлению информации для Вас')
 
@@ -87,10 +100,18 @@ def general_info_handler(message):
         for dots in range(3, 0, -1):
             bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id,
                                   text=loading_text + "." * dots)
-            time.sleep(1)
-
+            time.sleep(0.2)
     bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id,
                           text='Финальное сообщение')
+
+    bot.register_next_step_handler(message, ai_answer)
+
+
+def ai_answer(message):
+    global prompt
+    result = deep_pavlov_answer('who is the first president of the US?')
+    bot.send_message(message.chat.id, result)
+    bot.send_message(message.chat.id, prompt)
 
 
 if __name__ == '__main__':
