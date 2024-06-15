@@ -1,10 +1,12 @@
 import time
+import os
 import telebot
-import requests
-from telebot.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, \
+from g4f.client import Client
+from telebot.types import ReplyKeyboardRemove, InlineKeyboardMarkup, \
     InlineKeyboardButton
-from settings import *
+from deep_translator import GoogleTranslator
 from logic import Person
+from settings import *
 
 bot = telebot.TeleBot(bot_token)
 
@@ -12,15 +14,13 @@ person_info = {}
 prompt = ''
 
 
-def deep_pavlov_answer(question):
-    try:
-        API_URL = "https://7038.deeppavlov.ai/model"
-        data = {"question_raw": [question]}
-        res = requests.post(API_URL, json=data).json()
-        res = res[0][0]
-    except:
-        res = "I don't know how to help"
-    return res
+def ai_answer(question):
+    client = Client()
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": question}],
+    )
+    return response.choices[0].message.content
 
 
 @bot.message_handler(commands=['help'])
@@ -31,17 +31,26 @@ def help(message):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message,
-                 'Здравствуйте! Для начала мне потребуется узнать некоторую информацию о Вас для того, чтобы решить, как Вы можете изменить свою карьеру! 🌎📝\n\nМне потребуется: текущая профессия, предпочтения, ощущения от работы и некоторые детали по желанию.')
+    if os.path.exists('database.db'):
+        keyboard1 = InlineKeyboardMarkup()
+        b3 = InlineKeyboardButton(text="Да", callback_data='yes-start')
+        b4 = InlineKeyboardButton(text="Нет", callback_data='no-start')
+        keyboard1.add(b3)
+        keyboard1.add(b4)
+        bot.reply_to(message, "Вы уже вводили свои данные. Хотите обновить информацию?", reply_markup=keyboard1)
+    else:
+        person.create_tables()
+        bot.reply_to(message,
+                     'Здравствуйте! Для начала мне потребуется узнать некоторую информацию о Вас для того, чтобы решить, как Вы можете изменить свою карьеру! 🌎📝\n\nМне потребуется: текущая профессия, предпочтения, ощущения от работы и некоторые детали по желанию.')
 
-    keyboard = InlineKeyboardMarkup()
-    b1 = InlineKeyboardButton(text="Да", callback_data='yes')
-    b2 = InlineKeyboardButton(text="Нет", callback_data='no')
-    keyboard.add(b1)
-    keyboard.add(b2)
-    time.sleep(1)
-    bot.send_message(
-        message.chat.id, 'Готовы ли Вы сейчас ответить на некоторые вопросы?', reply_markup=keyboard)
+        keyboard = InlineKeyboardMarkup()
+        b1 = InlineKeyboardButton(text="Да", callback_data='yes')
+        b2 = InlineKeyboardButton(text="Нет", callback_data='no')
+        keyboard.add(b1)
+        keyboard.add(b2)
+        time.sleep(1)
+        bot.send_message(
+            message.chat.id, 'Готовы ли Вы сейчас ответить на некоторые вопросы?', reply_markup=keyboard)
 
 
 def job_handler(message):
@@ -62,10 +71,24 @@ def interests_handler(message):
     itembtn1 = InlineKeyboardButton('👍', callback_data='good')
     itembtn2 = InlineKeyboardButton('👎', callback_data='bad')
     itembtn3 = InlineKeyboardButton('🤷‍', callback_data='mixed')
-    markup.add(itembtn1, itembtn2, itembtn3)  # problem with displaying the prompt, it shows this question
+    markup.add(itembtn1, itembtn2, itembtn3)
     bot.send_message(message.chat.id,
                      'Отлично! Перейдем к третьему вопросу. \nКакие у Вас ощущение от работы и все, что с ней связано 🧐?',
                      reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data in ["yes-start", "no-start"])
+def handle_yes_no_start_callback(call):
+    if call.data == "yes-start":
+        os.remove('database.db')
+        start(call.message)
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    elif call.data == "no-start":
+        bot.send_message(call.message.chat.id, 'Без проблем, я буду ждать Вас 🕒')
+        time.sleep(1)
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.delete_message(call.message.chat.id, call.message.message_id - 1)
+        return
 
 
 @bot.callback_query_handler(func=lambda call: call.data in ["yes", "no"])
@@ -101,14 +124,13 @@ def feelings_handler(message):
     bot.send_message(message.chat.id,
                      'Отлично! Перейдем к последнему вопросу. \nКакие мысли Вас сопровождают в процессе работы 🧘?',
                      reply_markup=ReplyKeyboardRemove())
-    person_info[message.chat.id]["feelings"] = message.text
-    bot.register_next_step_handler(message, general_info_handler)
+    bot.register_next_step_handler(message, lambda msg: general_info_handler(msg))
 
 
 def general_info_handler(message):
+    global prompt
     bot.delete_message(message.chat.id, message.message_id)
     bot.delete_message(message.chat.id, message.message_id - 1)
-    global prompt
     person_info[message.chat.id]["general"] = message.text
     person_data = person_info.pop(message.chat.id)
     person.info(message.from_user.id, person_data["job"], person_data["interests"], person_data["feelings"],
@@ -122,13 +144,20 @@ def general_info_handler(message):
         for dots in range(3, 0, -1):
             bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id,
                                   text=loading_text + "." * dots)
-            time.sleep(0.2)
-    result = deep_pavlov_answer(prompt)
-    bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id,
-                          text=f'{result}\n\n{prompt}')
+            time.sleep(0.3)
+
+    translated = GoogleTranslator(source='auto', target='en').translate(prompt)
+    ai_eng = ai_answer(translated)
+    ai_rus = GoogleTranslator(source='auto', target='ru').translate(ai_eng)
+
+    bot.edit_message_text(chat_id=sent_message.chat.id, message_id=sent_message.message_id, text=ai_rus)
+
+
+@bot.message_handler(commands=['info'])
+def show_info(message):
+    bot.send_message(message.chat.id, person.get_person_info(message.chat.id))
 
 
 if __name__ == '__main__':
     person = Person('database.db')
-    person.create_tables()
     bot.infinity_polling()
